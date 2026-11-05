@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CYBER-MAN | Ciudadanía Digital</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    background: #070a1e; color: #f0faff;
+    font-family: Consolas, "Courier New", monospace;
+  }
+  h1 { margin: 12px 0 0; color: #00ffdc; letter-spacing: 2px; text-align: center; }
+  p { margin: 0; color: #b8c9e8; text-align: center; padding: 0 12px; }
+  canvas {
+    width: min(96vw, 600px); height: auto; display: block;
+    border: 2px solid #00b4ff; border-radius: 8px;
+    box-shadow: 0 0 22px #0077bb66; background: #070a1e;
+  }
+  .controls { display: grid; grid-template-columns: repeat(3, 52px); gap: 6px; }
+  button {
+    border: 1px solid #00b4ff; border-radius: 8px; background: #10264a;
+    color: white; font: bold 20px Consolas; padding: 10px; cursor: pointer;
+  }
+  button:active { background: #006a91; }
+  .empty { visibility: hidden; }
+  #restart { font-size: 15px; padding: 10px 18px; }
+  .help { font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>CYBER-MAN</h1>
+<p>Recoge todos los datos y evita la amenaza digital.</p>
+<canvas id="game" width="600" height="490" aria-label="Videojuego Cyber-Man"></canvas>
+<div class="controls" aria-label="Controles táctiles">
+  <button class="empty" tabindex="-1"> </button><button data-key="ArrowUp">↑</button><button class="empty" tabindex="-1"> </button>
+  <button data-key="ArrowLeft">←</button><button data-key="ArrowDown">↓</button><button data-key="ArrowRight">→</button>
+</div>
+<button id="restart">Reiniciar (R)</button>
+<p class="help">Usa las flechas o WASD para moverte · R para reiniciar · Esc para salir</p>
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const TILE = 40, COLS = 15, ROWS = 11, HUD = 50;
+  const colors = {
+    bg: "#070a1e", blue: "#00b4ff", cyan: "#00ffdc",
+    yellow: "#ffe146", pink: "#ff3282", white: "#f0faff", green: "#46ff8c"
+  };
+  const map = [
+    "###############",
+    "#P....#.......#",
+    "#.##..#..###..#",
+    "#.............#",
+    "###.####.##...#",
+    "#.............#",
+    "#..###..###...#",
+    "#...........E.#",
+    "#.####.###.##.#",
+    "#.............#",
+    "###############"
+  ];
+  let walls = [], dots = [], player, enemy, score, state, lastEnemyMove;
+  const keys = new Set();
+
+  function reset() {
+    walls = []; dots = [];
+    player = { x: 0, y: 0, w: 24, h: 24, speed: 3 };
+    enemy = { x: 0, y: 0, w: 24, h: 24 };
+    map.forEach((line, row) => [...line].forEach((cell, col) => {
+      const x = col * TILE, y = row * TILE;
+      if (cell === "#") walls.push({ x, y, w: TILE, h: TILE });
+      if (cell === ".") dots.push({ x: x + 16, y: y + 16, w: 8, h: 8 });
+      if (cell === "P") { player.x = x + 8; player.y = y + 8; }
+      if (cell === "E") { enemy.x = x + 8; enemy.y = y + 8; }
+    }));
+    score = 0; state = "jugando"; lastEnemyMove = performance.now();
+  }
+
+  function overlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x &&
+           a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+  function blocked(rect) { return walls.some(w => overlap(rect, w)); }
+
+  function movePlayer() {
+    let dx = 0, dy = 0;
+    if (keys.has("ArrowLeft") || keys.has("a") || keys.has("A")) dx = -player.speed;
+    else if (keys.has("ArrowRight") || keys.has("d") || keys.has("D")) dx = player.speed;
+    else if (keys.has("ArrowUp") || keys.has("w") || keys.has("W")) dy = -player.speed;
+    else if (keys.has("ArrowDown") || keys.has("s") || keys.has("S")) dy = player.speed;
+    player.x += dx; if (blocked(player)) player.x -= dx;
+    player.y += dy; if (blocked(player)) player.y -= dy;
+
+    dots = dots.filter(dot => {
+      if (overlap(player, dot)) { score += 10; return false; }
+      return true;
+    });
+  }
+
+  function moveEnemy(now) {
+    if (now - lastEnemyMove < 350) return;
+    const col = Math.floor((enemy.x + enemy.w / 2) / TILE);
+    const row = Math.floor((enemy.y + enemy.h / 2) / TILE);
+    const options = [[0,-1],[0,1],[-1,0],[1,0]].sort(() => Math.random() - 0.5);
+    for (const [mx, my] of options) {
+      const next = { x: (col + mx) * TILE + 8, y: (row + my) * TILE + 8, w: 24, h: 24 };
+      if (!blocked(next)) { enemy = next; break; }
+    }
+    lastEnemyMove = now;
+  }
+
+  function circle(x, y, radius, color) {
+    ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
+  }
+  function draw() {
+    ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let x = 0; x <= 600; x += TILE) {
+      ctx.strokeStyle = "#0c1b37"; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 440); ctx.stroke();
+    }
+    for (let y = 0; y <= 440; y += TILE) {
+      ctx.strokeStyle = "#0c1b37"; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(600, y); ctx.stroke();
+    }
+    walls.forEach(w => {
+      ctx.fillStyle = "#0a234b"; ctx.fillRect(w.x, w.y, w.w, w.h);
+      ctx.strokeStyle = colors.blue; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect(w.x + 1, w.y + 1, w.w - 2, w.h - 2, 5); ctx.stroke();
+    });
+    dots.forEach(d => { circle(d.x + 4, d.y + 4, 9, "#146464"); circle(d.x + 4, d.y + 4, 4, colors.cyan); });
+    circle(player.x + 12, player.y + 12, 17, "#5a4b14");
+    circle(player.x + 12, player.y + 12, 12, colors.yellow);
+    circle(enemy.x + 12, enemy.y + 12, 17, "#500f41");
+    circle(enemy.x + 12, enemy.y + 12, 12, colors.pink);
+    circle(enemy.x + 8, enemy.y + 10, 3, colors.white);
+    circle(enemy.x + 16, enemy.y + 10, 3, colors.white);
+
+    ctx.fillStyle = "#0c1430"; ctx.fillRect(0, 440, 600, 50);
+    ctx.font = "bold 22px Consolas"; ctx.fillStyle = colors.cyan; ctx.fillText("PUNTOS: " + score, 12, 472);
+    ctx.fillStyle = colors.white; ctx.fillText("DATOS: " + dots.length, 220, 472);
+    ctx.font = "16px Consolas"; ctx.fillStyle = colors.pink; ctx.fillText("ESC: SALIR", 430, 470);
+
+    if (state !== "jugando") {
+      ctx.fillStyle = "rgba(3,5,25,0.88)"; ctx.fillRect(0, 0, 600, 440);
+      ctx.textAlign = "center"; ctx.font = "bold 26px Consolas";
+      ctx.fillStyle = state === "ganaste" ? colors.green : colors.pink;
+      ctx.fillText(state === "ganaste" ? "¡NIVEL COMPLETADO!" : "¡TE ATRAPO LA AMENAZA!", 300, 190);
+      ctx.font = "16px Consolas"; ctx.fillStyle = colors.white;
+      ctx.fillText("Protege tus datos y navega con responsabilidad", 300, 230);
+      ctx.fillStyle = colors.yellow; ctx.fillText("Presiona R para reiniciar", 300, 270);
+      ctx.textAlign = "left";
+    }
+  }
+
+  function loop(now) {
+    if (state === "jugando") {
+      movePlayer(); moveEnemy(now);
+      if (overlap(player, enemy)) state = "perdiste";
+      else if (dots.length === 0) state = "ganaste";
+    }
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  window.addEventListener("keydown", e => {
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+    keys.add(e.key);
+    if (e.key.toLowerCase() === "r" && state !== "jugando") reset();
+    if (e.key === "Escape") { keys.clear(); }
+  });
+  window.addEventListener("keyup", e => keys.delete(e.key));
+  document.querySelectorAll("[data-key]").forEach(btn => {
+    const key = btn.dataset.key;
+    btn.addEventListener("pointerdown", e => { e.preventDefault(); keys.add(key); });
+    ["pointerup","pointerleave","pointercancel"].forEach(type => btn.addEventListener(type, () => keys.delete(key)));
+  });
+  document.getElementById("restart").addEventListener("click", reset);
+  reset(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
